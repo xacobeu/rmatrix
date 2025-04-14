@@ -1,6 +1,6 @@
 use crossterm::{
     cursor::{Hide, MoveTo, Show}, event::{poll, read, Event, KeyCode}, execute, style::{
-        Attribute::{Bold, Dim}, Color, Print, ResetColor, SetAttribute, SetForegroundColor
+        Attribute::{self, Bold, Dim}, Color, Print, ResetColor, SetAttribute, SetForegroundColor
     }, terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType}
 };
 use rand::Rng;
@@ -14,6 +14,68 @@ const MAX_STREAM_LEN: usize = 10;
 const STREAM_SPAWN_PROBABILITY: f32 = 1.0;
 
 const FRAME_DELAY_MS: u64 = 30; // Milliseconds between frames
+
+// Enum of stream colors
+#[derive(Copy, Clone)]
+enum ColorScheme {
+    Green,
+    Red,
+    Blue,
+    Yellow,
+    Magenta,
+    Cyan,
+    
+}
+
+impl ColorScheme {
+    fn next(&self) -> Self {
+        match self {
+            ColorScheme::Green => ColorScheme::Red,
+            ColorScheme::Red => ColorScheme::Blue,
+            ColorScheme::Blue => ColorScheme::Yellow,
+            ColorScheme::Yellow => ColorScheme::Magenta,
+            ColorScheme::Magenta => ColorScheme::Cyan,
+            ColorScheme::Cyan => ColorScheme::Green,
+        }
+    }
+
+    fn get_colors(&self, i: usize, len: usize) -> (Color, Attribute) {
+        let is_head = i == 0;
+        // Make tail dimmer (e.g., last 60% of the stream)
+        let is_tail = !is_head && i > (len as f32 * 0.4) as usize;
+
+        if is_head {
+            return (Color::White, Bold); // Bright white head
+        }
+
+        match self {
+            ColorScheme::Green => {
+                if is_tail { (Color::DarkGreen, Dim) }
+                else { (Color::Green, Bold) }
+            }
+            ColorScheme::Red => {
+                if is_tail { (Color::DarkRed, Dim) }
+                else { (Color::Red, Bold) }
+            }
+            ColorScheme::Blue => {
+                if is_tail { (Color::DarkBlue, Dim) }
+                else { (Color::Blue, Bold) }
+            }
+            ColorScheme::Magenta => {
+                if is_tail { (Color::DarkMagenta, Dim) }
+                else { (Color::Magenta, Bold) }
+            }
+            ColorScheme::Yellow => {
+                if is_tail { (Color::DarkYellow, Dim) }
+                else { (Color::Yellow, Bold) }
+            }
+            ColorScheme::Cyan => {
+                if is_tail { (Color::DarkCyan, Dim) }
+                else { (Color::Cyan, Bold) }
+            }
+        }
+    }
+}
 
 // STRUCTS
 struct Stream {
@@ -67,11 +129,13 @@ impl Stream {
         }
     }
 
-    fn draw(&self, stdout: &mut io::Stdout, screen_height: u16) -> Result<(), std::io::Error> {
+    fn draw(&self, stdout: &mut io::Stdout, screen_height: u16, color_scheme: ColorScheme) -> Result<(), std::io::Error> {
 
         if self.is_dying {
             return Ok(());
         }
+
+        let stream_len = self.chars.len();
 
         for (i, &ch) in self.chars.iter().enumerate() {
             let current_y = self.y - i as u16;
@@ -79,16 +143,7 @@ impl Stream {
                 continue;
             }
 
-            // Style: Brightest head, then normal, then maybe dim tail
-            let (color, attribute) = if i == 0 {
-                (Color::White, Bold) // Bright white head
-            } else if i < self.chars.len() / 2 {
-                 (Color::Green, Bold) // Normal green middle
-            } else {
-                (Color::Green, Dim) // Dimmer green tail
-                // Or use Attribute::Dim with Color::Green if preferred
-                // (Color::Green, Dim)
-            };
+            let (color, attribute) = color_scheme.get_colors(i, stream_len);
 
             execute!(
                 stdout,
@@ -96,16 +151,15 @@ impl Stream {
                 SetForegroundColor(color),
                 SetAttribute(attribute),
                 Print(ch),
-                ResetColor // Reset color too
+                SetAttribute(Attribute::Reset),
+                ResetColor
             )?;
         }
 
         // Erase the character just behind the tail
         let erase_y = self.y - self.chars.len() as u16;
         if erase_y < screen_height {
-            
             execute!(stdout, MoveTo(self.col, erase_y), Print(" "))?;
-            
         }
 
         Ok(())
@@ -128,7 +182,7 @@ fn main() -> io::Result<()> {
     let (mut cols, mut rows) = size()?;
     let mut rng = rand::rng();
     let mut stdout = stdout();
-    
+    let mut current_color_scheme = ColorScheme::Green;
     let mut streams: Vec<Stream> = (0..cols).map(|c| Stream {
         col: c,
         y: 0,
@@ -142,17 +196,16 @@ fn main() -> io::Result<()> {
     loop {
         // --- Event Handling (check for resize or quit) ---
         if poll(Duration::from_millis(0))? { // Check if event is available without blocking
-             match read()? {
+            match read()? {
                 Event::Key(event) => {
                     // Quit on control + c
-                    if  event.modifiers == crossterm::event::KeyModifiers::CONTROL && event.code == KeyCode::Char('c') {
+                    if  (event.modifiers == crossterm::event::KeyModifiers::CONTROL && event.code == KeyCode::Char('c')) || (event.code == KeyCode::Esc) {
                         break;
                     }
-                    // Quit on escape
-                    if event.code == KeyCode::Esc {
-                        break;
+                    // Change color on space
+                    if event.code == KeyCode::Char(' ') {
+                        current_color_scheme = current_color_scheme.next();
                     }
-                    // Consider adding Ctrl+C handling via `ctrlc` crate for robustness
                 },
                 Event::Resize(new_cols, new_rows) => {
                     cols = new_cols;
@@ -170,12 +223,12 @@ fn main() -> io::Result<()> {
         for stream in streams.iter_mut() {
             if !stream.is_dying {
                 stream.update(rows);
-                stream.draw(&mut stdout, rows)?;
+                stream.draw(&mut stdout, rows, current_color_scheme)?;
             } else {
                 if rng.random::<f32>() < STREAM_SPAWN_PROBABILITY / (cols as f32) { // Lower probability per column
                     *stream = Stream::new(stream.col); // Activate it!
                     // Draw the newly activated stream immediately
-                    stream.draw(&mut stdout, rows)?;
+                    stream.draw(&mut stdout, rows, current_color_scheme)?;
                 }
             }
         }
