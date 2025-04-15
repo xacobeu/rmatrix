@@ -13,8 +13,6 @@ const MIN_STREAM_LEN: usize = 5;
 const MAX_STREAM_LEN: usize = 10;
 const STREAM_SPAWN_PROBABILITY: f32 = 1.0;
 
-const FRAME_DELAY_MS: u64 = 30; // Milliseconds between frames
-
 // Enum of stream colors
 #[derive(Copy, Clone)]
 enum ColorScheme {
@@ -183,6 +181,9 @@ fn main() -> io::Result<()> {
     let mut rng = rand::rng();
     let mut stdout = stdout();
     let mut current_color_scheme = ColorScheme::Green;
+
+    let mut frame_delay_ms: u64 = 30; // Milliseconds between frames
+
     let mut streams: Vec<Stream> = (0..cols).map(|c| Stream {
         col: c,
         y: 0,
@@ -205,6 +206,15 @@ fn main() -> io::Result<()> {
                     // Change color on space
                     if event.code == KeyCode::Char(' ') {
                         current_color_scheme = current_color_scheme.next();
+                    }
+                    // Increase or decrease speed with up and down arrows
+                    if frame_delay_ms > 5 && frame_delay_ms < 100 {
+                        if event.code == KeyCode::Up {
+                            frame_delay_ms -= 5;
+                        }
+                        if event.code == KeyCode::Down {
+                            frame_delay_ms += 5;
+                        }
                     }
                 },
                 Event::Resize(new_cols, new_rows) => {
@@ -236,7 +246,7 @@ fn main() -> io::Result<()> {
         stdout.flush()?;
 
         // Frame delay
-        std::thread::sleep(Duration::from_millis(FRAME_DELAY_MS));
+        std::thread::sleep(Duration::from_millis(frame_delay_ms));
     }
 
     restore_cursor()?;
