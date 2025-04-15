@@ -5,6 +5,7 @@ use crossterm::{
 };
 use rand::Rng;
 use std::{collections::VecDeque, io::{self, stdout, Write}, time::Duration};
+use clap::{Parser, ValueEnum};
 
 // CONSTANTS
 const ALL_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()+={}[]:;<>?/";
@@ -14,7 +15,7 @@ const MAX_STREAM_LEN: usize = 10;
 const STREAM_SPAWN_PROBABILITY: f32 = 1.0;
 
 // Enum of stream colors
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, ValueEnum)]
 enum ColorScheme {
     Green,
     Red,
@@ -22,7 +23,6 @@ enum ColorScheme {
     Yellow,
     Magenta,
     Cyan,
-    
 }
 
 impl ColorScheme {
@@ -175,12 +175,26 @@ fn restore_cursor() -> Result<(), io::Error> {
     Ok(())
 }
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[arg(short, long, value_enum, help = "Choose initial stream color.")]
+    color: Option<ColorScheme>
+}
+
 fn main() -> io::Result<()> {
+
+    let cli = Cli::parse();
+
     enable_raw_mode()?;
     let (mut cols, mut rows) = size()?;
     let mut rng = rand::rng();
     let mut stdout = stdout();
     let mut current_color_scheme = ColorScheme::Green;
+
+    if let Some(color) = cli.color {
+        current_color_scheme = color;
+    }
 
     let mut frame_delay_ms: u64 = 30; // Milliseconds between frames
 
@@ -195,7 +209,7 @@ fn main() -> io::Result<()> {
     clear_screen()?;
 
     loop {
-        // --- Event Handling (check for resize or quit) ---
+        // --- Event Handling  ---
         if poll(Duration::from_millis(0))? { // Check if event is available without blocking
             match read()? {
                 Event::Key(event) => {
