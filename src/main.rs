@@ -7,12 +7,18 @@ use rand::Rng;
 use std::{collections::VecDeque, io::{self, stdout, Write}, time::Duration};
 use clap::{Parser, ValueEnum};
 
-// CONSTANTS
 const ALL_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()+={}[]:;<>?/";
-
 const MIN_STREAM_LEN: usize = 5;
 const MAX_STREAM_LEN: usize = 10;
 const STREAM_SPAWN_PROBABILITY: f32 = 1.0;
+
+// Cli arguments.
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[arg(short, long, value_enum, help = "Choose initial stream color.")]
+    color: Option<ColorScheme>
+}
 
 // Enum of stream colors
 #[derive(Copy, Clone, ValueEnum)]
@@ -75,7 +81,6 @@ impl ColorScheme {
     }
 }
 
-// STRUCTS
 struct Stream {
     col: u16,
     y: u16,
@@ -164,39 +169,26 @@ impl Stream {
     }
 }
 
-// Clear the screen start_positions
-fn clear_screen() -> Result<(), io::Error> {
-    execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0), Hide,)?;
-    Ok(())
-}
-
-fn restore_cursor() -> Result<(), io::Error> {
-    execute!(stdout(), Show, ResetColor, Clear(ClearType::All), MoveTo(0,0))?;
-    Ok(())
-}
-
-#[derive(Parser)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    #[arg(short, long, value_enum, help = "Choose initial stream color.")]
-    color: Option<ColorScheme>
-}
-
 fn main() -> io::Result<()> {
 
-    let cli = Cli::parse();
-
     enable_raw_mode()?;
-    let (mut cols, mut rows) = size()?;
-    let mut rng = rand::rng();
+
+    let cli = Cli::parse();
+    
     let mut stdout = stdout();
+    let mut rng = rand::rng();
+
+    let (mut cols, mut rows) = size()?;
+    
     let mut current_color_scheme = ColorScheme::Green;
 
+    // If color argument exists, use it.
     if let Some(color) = cli.color {
         current_color_scheme = color;
     }
 
-    let mut frame_delay_ms: u64 = 30; // Milliseconds between frames
+    // Milliseconds between frames
+    let mut frame_delay_ms: u64 = 30; 
 
     let mut streams: Vec<Stream> = (0..cols).map(|c| Stream {
         col: c,
@@ -235,7 +227,7 @@ fn main() -> io::Result<()> {
                     cols = new_cols;
                     rows = new_rows;
                     execute!(stdout, Clear(ClearType::All))?; // Clear on resize
-                    // Resize stream vector (simplistic: just recreate)
+                    // Resize stream vector
                     streams = (0..cols).map(|c| Stream {
                         col: c, y: 0, max_len: 0, chars: VecDeque::new(), is_dying: true
                     }).collect();
@@ -266,5 +258,16 @@ fn main() -> io::Result<()> {
     restore_cursor()?;
     disable_raw_mode()?;
     
+    Ok(())
+}
+
+// Clear the screen start_positions
+fn clear_screen() -> Result<(), io::Error> {
+    execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0), Hide,)?;
+    Ok(())
+}
+
+fn restore_cursor() -> Result<(), io::Error> {
+    execute!(stdout(), Show, ResetColor, Clear(ClearType::All), MoveTo(0,0))?;
     Ok(())
 }
